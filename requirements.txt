@@ -1,0 +1,4 @@
+Flask==3.0.2
+xgboost==2.0.3
+numpy==1.26.4
+gunicorn==22.0.0
