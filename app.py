@@ -1,12 +1,10 @@
 import os
 import pickle
 import numpy as np
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLTemplateResponse, JSONResponse
-from pydantic import BaseModel
+from flask import Flask, request, jsonify, render_template_string
 
-# 1. Initialize FastAPI globally (Fixes Vercel's top-level app/handler error)
-app = FastAPI()
+# 1. Initialize Flask globally (Fixes Vercel's top-level app/handler error)
+app = Flask(__name__)
 
 # 2. Load the verbatim named model file
 MODEL_PATH = "model.pkl"
@@ -27,21 +25,6 @@ FEATURE_NAMES = [
     "loan_intent_HOMEIMPROVEMENT", "loan_intent_MEDICAL", "loan_intent_PERSONAL",
     "loan_intent_VENTURE", "previous_loan_defaults_on_file_Yes"
 ]
-
-# Simple programmatic API input validation
-class LoanPayload(BaseModel):
-    person_age: float
-    person_income: float
-    person_emp_exp: int
-    loan_amnt: float
-    loan_int_rate: float
-    cb_person_cred_hist_length: float
-    credit_score: int
-    person_gender: str  # "male", "female"
-    person_education: str  # "Bachelor", "Doctorate", "High School", "Master"
-    person_home_ownership: str  # "OWN", "RENT", "OTHER", "MORTGAGE"
-    loan_intent: str  # "EDUCATION", "HOMEIMPROVEMENT", "MEDICAL", "PERSONAL", "VENTURE"
-    previous_loan_defaults: str  # "Yes", "No"
 
 def process_features(data: dict) -> list:
     """Helper to structure the raw input dictionary into the 22 features array."""
@@ -73,7 +56,7 @@ def process_features(data: dict) -> list:
     }
     return [encoded[col] for col in FEATURE_NAMES]
 
-# HTML Frontend string served via root path
+# HTML Frontend UI served via base render route
 HTML_FRONTEND = """
 <!DOCTYPE html>
 <html lang="en">
@@ -85,7 +68,7 @@ HTML_FRONTEND = """
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex items-center justify-center py-10 px-4">
     <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-2xl border border-slate-100">
-        <h2 class="text-3xl font-extrabold text-indigo-700 text-center mb-2">💰 Loan Approval Portal</h2>
+        <h2 class="text-3xl font-extrabold text-indigo-700 text-center mb-2">💰 Loan Approval Portal (Flask)</h2>
         <p class="text-center text-slate-500 mb-8">Enter applicant criteria to evaluate risk and eligibility</p>
         
         <form id="predictionForm" class="space-y-6">
@@ -211,30 +194,33 @@ HTML_FRONTEND = """
 </html>
 """
 
-@app.get("/", response_class=HTMLResponse)
-def serve_ui():
-    return HTML_FRONTEND
+@app.route("/", methods=["GET"])
+def index():
+    return render_template_string(HTML_FRONTEND)
 
-@app.post("/api/predict")
-def predict_loan(payload: LoanPayload):
+@app.route("/api/predict", methods=["POST"])
+def predict():
     if model is None:
-        return JSONResponse(status_code=500, content={"error": "Model architecture payload configuration invalid/missing."})
+        return jsonify({"error": "Model payload configuration invalid/missing."}), 500
     
     try:
-        # Convert dictionary structurally to 22 feature shape matching input requirements
-        raw_input_data = payload.dict()
-        input_array = [process_features(raw_input_data)]
+        # Flask requests read incoming body data via request.get_json()
+        raw_data = request.get_json()
+        input_features = [process_features(raw_data)]
         
-        # Inference pipeline tracking
-        prediction = model.predict(input_array)
-        probability = model.predict_proba(input_array)[0][1]
+        # Execute binary logloss prediction trees
+        prediction = model.predict(input_features)
+        probability = model.predict_proba(input_features)[0][1]
         
-        # Typically 0 implies approval/no-default and 1 implies dynamic threat/risk
+        # Normally 0 translates to approved/non-default in credit risk analysis
         approved_status = bool(prediction[0] == 0)
         
-        return {
+        return jsonify({
             "approved": approved_status,
             "risk_probability": float(probability)
-        }
+        })
     except Exception as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return jsonify({"error": str(e)}), 400
+
+if __name__ == "__main__":
+    app.run(debug=True)
