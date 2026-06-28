@@ -1,5 +1,3 @@
-Flask
-xgboost
-scikit-learn
-pandas
-numpy
+Flask==3.0.2
+xgboost==2.0.3
+numpy==1.26.4
