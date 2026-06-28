@@ -3,10 +3,10 @@ import pickle
 import numpy as np
 from flask import Flask, request, jsonify, render_template_string
 
-# 1. Initialize Flask globally (Fixes Vercel's top-level app/handler error)
+# Initialize Flask globally
 app = Flask(__name__)
 
-# 2. Load the verbatim named model file
+# Load the model file
 MODEL_PATH = "model.pkl"
 try:
     with open(MODEL_PATH, "rb") as f:
@@ -15,7 +15,7 @@ except Exception as e:
     print(f"Error loading {MODEL_PATH}: {str(e)}")
     model = None
 
-# Define structural expected columns exactly matching the model's 22 features
+# Order of features strictly expected by your XGBoost model (22 features total)
 FEATURE_NAMES = [
     "person_age", "person_income", "person_emp_exp", "loan_amnt", 
     "loan_int_rate", "loan_percent_income", "cb_person_cred_hist_length", "credit_score",
@@ -27,7 +27,7 @@ FEATURE_NAMES = [
 ]
 
 def process_features(data: dict) -> list:
-    """Helper to structure the raw input dictionary into the 22 features array."""
+    """Structures raw input data directly into a 22-element list without using Pandas."""
     loan_percent_inc = float(data["loan_amnt"]) / max(float(data["person_income"]), 1.0)
     
     encoded = {
@@ -204,15 +204,16 @@ def predict():
         return jsonify({"error": "Model payload configuration invalid/missing."}), 500
     
     try:
-        # Flask requests read incoming body data via request.get_json()
         raw_data = request.get_json()
-        input_features = [process_features(raw_data)]
         
-        # Execute binary logloss prediction trees
+        # Structure features as a 2D NumPy array directly
+        features_list = process_features(raw_data)
+        input_features = np.array([features_list])
+        
+        # Execute prediction trees
         prediction = model.predict(input_features)
         probability = model.predict_proba(input_features)[0][1]
         
-        # Normally 0 translates to approved/non-default in credit risk analysis
         approved_status = bool(prediction[0] == 0)
         
         return jsonify({
